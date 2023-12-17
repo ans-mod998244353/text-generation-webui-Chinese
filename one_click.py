@@ -110,11 +110,13 @@ def check_env():
     conda_exist = run_cmd("conda", environment=True, capture_output=True).returncode == 0
     if not conda_exist:
         print("Conda is not installed. Exiting...")
+        print("Conda 未安装。")
         sys.exit(1)
 
     # Ensure this is a new environment and not the base environment
     if os.environ["CONDA_DEFAULT_ENV"] == "base":
         print("Create an environment for this project and activate it. Exiting...")
+        print("为该项目创建环境并激活它。")
         sys.exit(1)
 
 
@@ -159,6 +161,7 @@ def run_cmd(cmd, assert_success=False, environment=False, capture_output=False, 
     # Assert the command ran successfully
     if assert_success and result.returncode != 0:
         print("Command '" + cmd + "' failed with exit status code '" + str(result.returncode) + "'.\n\nExiting now.\nTry running the start/update script again.")
+        print("命令 '" + cmd + "' 失败。错误信息 '" + str(result.returncode) + "'.\n\n现在退出。\n尝试再次运行 start/update。")
         sys.exit(1)
 
     return result
@@ -172,25 +175,29 @@ def install_webui():
     else:
         print()
         print("What is your GPU?")
+        print("请选择 GPU。")
         print()
         print("A) NVIDIA")
-        print("B) AMD (Linux/MacOS only. Requires ROCm SDK 5.6 on Linux)")
+        print("B) AMD (Linux/MacOS only. Requires ROCm SDK 5.6 on Linux 仅限 Linux/MacOS。在 Linux 上需要 ROCm SDK 5.6)")
         print("C) Apple M Series")
         print("D) Intel Arc (IPEX)")
-        print("N) None (I want to run models in CPU mode)")
+        print("N) None (I want to run models in CPU mode 我想在 CPU 模式下运行模型 (这真的很慢))")
         print()
 
         choice = input("Input> ").upper()
         while choice not in 'ABCDN':
             print("Invalid choice. Please try again.")
+            print("选择无效！")
             choice = input("Input> ").upper()
 
     if choice == "N":
-        print_big_message("Once the installation ends, make sure to open CMD_FLAGS.txt with\na text editor and add the --cpu flag.")
+        print_big_message("Once the installation ends, make sure to open CMD_FLAGS.txt with\na text editor and add the --cpu flag.\n安装结束后，确保使用文本编辑器打开 CMD_FLAGS.txt\n并添加 --cpu 标志。")
 
     # Find the proper Pytorch installation command
     install_git = "conda install -y -k ninja git"
+    set_mirror = "python -m pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple" # 设置清华源
     install_pytorch = "python -m pip install torch torchvision torchaudio"
+    git_config = "git config --global http.version HTTP/1.1" # git 在 HTTP/2 情况下有可能出错
 
     use_cuda118 = "N"
     if any((is_windows(), is_linux())) and choice == "A":
@@ -199,6 +206,7 @@ def install_webui():
         else:
             # Ask for CUDA version if using NVIDIA
             print("\nDo you want to use CUDA 11.8 instead of 12.1? Only choose this option if your GPU is very old (Kepler or older).\nFor RTX and GTX series GPUs, say \"N\". If unsure, say \"N\".\n")
+            print("\n您想使用 CUDA 11.8 而不是 12.1？只有当您的 GPU 非常老旧（Kepler 或更早版本）时才会选择此选项。\n对于 RTX 和 GTX 系列 GPU，请输入 \"N\". 如果不确定，输入 \"N\".\n")
             use_cuda118 = input("Input (Y/N)> ").upper().strip('"\'').strip()
             while use_cuda118 not in 'YN':
                 print("Invalid choice. Please try again.")
@@ -218,15 +226,15 @@ def install_webui():
     elif is_linux() and (choice == "C" or choice == "N"):
         install_pytorch = "python -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu"
     elif choice == "D":
-        install_pytorch = "python -m pip install torch==2.1.0a0 torchvision==0.16.0a0 intel_extension_for_pytorch==2.1.10+xpu --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/"
+        install_pytorch = "python -m pip install torch==2.0.1a0 torchvision==0.15.2a0 intel_extension_for_pytorch==2.0.110+xpu --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/"
 
     # Install Git and then Pytorch
-    print_big_message("Installing PyTorch.")
-    run_cmd(f"{install_git} && {install_pytorch} && python -m pip install py-cpuinfo==9.0.0", assert_success=True, environment=True)
+    print("设置清华源以加速 pip 下载。")
+    print("安装 Git 和 Pytorch。")
+    run_cmd(f"{install_git} && {git_config} && {install_pytorch} && {set_mirror} && python -m pip install py-cpuinfo==9.0.0", assert_success=True, environment=True)
 
     # Install CUDA libraries (this wasn't necessary for Pytorch before...)
     if choice == "A":
-        print_big_message("Installing the CUDA runtime libraries.")
         run_cmd(f"conda install -y -c \"nvidia/label/{'cuda-12.1.1' if use_cuda118 == 'N' else 'cuda-11.8.0'}\" cuda-runtime", assert_success=True, environment=True)
 
     # Install the webui requirements
@@ -263,18 +271,20 @@ def update_requirements(initial_installation=False):
 
     if install:
         print_big_message("Installing extensions requirements.")
-        skip = ['superbooga', 'superboogav2', 'coqui_tts']  # Fail to install on Windows
-        extensions = [foldername for foldername in os.listdir('extensions') if os.path.isfile(os.path.join('extensions', foldername, 'requirements.txt'))]
-        extensions = [x for x in extensions if x not in skip]
-        for i, extension in enumerate(extensions):
-            print(f"\n\n--- [{i+1}/{len(extensions)}]: {extension}\n\n")
+        extensions = next(os.walk("extensions"))[1]
+        for extension in extensions:
+            if extension in ['superbooga', 'superboogav2', 'coqui_tts']:  # Fail to install on Windows
+                continue
+
             extension_req_path = os.path.join("extensions", extension, "requirements.txt")
-            run_cmd("python -m pip install -r " + extension_req_path + " --upgrade", assert_success=False, environment=True)
+            if os.path.exists(extension_req_path):
+                run_cmd("python -m pip install -r " + extension_req_path + " --upgrade", assert_success=False, environment=True)
     elif initial_installation:
         print_big_message("Will not install extensions due to INSTALL_EXTENSIONS environment variable.")
 
     # Detect the Python and PyTorch versions
     torver = torch_version()
+    print(f"TORCH: {torver}")
     is_cuda = '+cu' in torver
     is_cuda118 = '+cu118' in torver  # 2.1.0+cu118
     is_cuda117 = '+cu117' in torver  # 2.0.1+cu117
@@ -303,10 +313,8 @@ def update_requirements(initial_installation=False):
         else:
             requirements_file = "requirements_noavx2.txt"
 
-    print_big_message(f"Installing webui requirements from file: {requirements_file}")
-    print(f"TORCH: {torver}\n")
-
     # Prepare the requirements file
+    print_big_message(f"Installing webui requirements from file: {requirements_file}")
     textgen_requirements = open(requirements_file).read().splitlines()
     if is_cuda117:
         textgen_requirements = [req.replace('+cu121', '+cu117').replace('+cu122', '+cu117').replace('torch2.1', 'torch2.0') for req in textgen_requirements]
@@ -347,7 +355,7 @@ def update_requirements(initial_installation=False):
 
     # Install or update ExLlama as needed
     if not os.path.exists("exllama/"):
-        run_cmd("git clone https://github.com/turboderp/exllama.git", environment=True)
+        run_cmd("git clone https://kkgithub.com/turboderp/exllama.git", environment=True)
     else:
         os.chdir("exllama")
         run_cmd("git pull", environment=True)
